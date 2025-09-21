@@ -1,0 +1,8 @@
+appHosting:
+  build:
+    outputDir: build/web
+    scripts:
+      - prebuild: flutter clean && flutter pub get
+      - build: flutter build web --web-renderer html
+  run:
+    outputDir: build/web
