@@ -2,7 +2,25 @@ appHosting:
   build:
     outputDir: build/web
     scripts:
-      - prebuild: flutter clean && flutter pub get
-      - build: flutter build web --web-renderer html
+      - build: |
+          # Install Flutter
+          if [ ! -d "/opt/flutter" ]; then
+            echo "Installing Flutter..."
+            curl -sSL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.24.3-stable.tar.xz -o /tmp/flutter.tar.xz
+            mkdir -p /opt
+            tar -xf /tmp/flutter.tar.xz -C /opt
+            rm /tmp/flutter.tar.xz
+            export PATH="/opt/flutter/bin:$PATH"
+          else
+            export PATH="/opt/flutter/bin:$PATH"
+          fi
+
+          # Verify Flutter installation
+          flutter --version
+
+          # Clean and build
+          flutter clean
+          flutter pub get
+          flutter build web --web-renderer html
   run:
     outputDir: build/web

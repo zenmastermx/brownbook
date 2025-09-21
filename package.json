@@ -6,8 +6,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "build": "flutter build web --web-renderer html",
-    "prebuild": "flutter clean && flutter pub get"
+    "build": "bash build.sh"
   },
   "devDependencies": {
     "firebase": "^10.0.0"
