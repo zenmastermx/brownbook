@@ -1,7 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -15,162 +15,104 @@ void main() async {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Flutter Demo',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const HomePage(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<HomePage> createState() => _HomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
-  String _userEmail = 'Not signed in';
-  String _firestoreData = 'No data';
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
-  }
-
-  Future<void> _checkAuthStatus() async {
-    User? user = _auth.currentUser;
-    setState(() {
-      _userEmail = user?.email ?? 'Not signed in';
-    });
-  }
-
-  Future<void> _readFirestoreData() async {
-    try {
-      DocumentSnapshot doc = await _firestore.collection('test').doc('counter').get();
-      setState(() {
-        _firestoreData = 'Counter from Firestore: ${doc.data() ?? 'No data'}';
-      });
-    } catch (e) {
-      setState(() {
-        _firestoreData = 'Error reading Firestore: $e';
-      });
-    }
-  }
-
-  Future<void> _writeFirestoreData() async {
-    try {
-      await _firestore.collection('test').doc('counter').set({
-        'value': _counter,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-      _readFirestoreData(); // Refresh the data
-    } catch (e) {
-      setState(() {
-        _firestoreData = 'Error writing to Firestore: $e';
-      });
-    }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _checkAuthStatus();
-  }
+class _HomePageState extends State<HomePage> {
+  final AuthService _authService = AuthService();
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        title: const Text('Firebase Auth'),
       ),
       body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 20),
-            Text('Firebase Auth: $_userEmail'),
-            const SizedBox(height: 10),
-            Text('Firestore: $_firestoreData'),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _readFirestoreData,
-              child: const Text('Read from Firestore'),
-            ),
-            const SizedBox(height: 10),
-            ElevatedButton(
-              onPressed: _writeFirestoreData,
-              child: const Text('Save to Firestore'),
-            ),
-          ],
+        child: StreamBuilder<User?>(
+          stream: FirebaseAuth.instance.authStateChanges(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const CircularProgressIndicator();
+            } else if (snapshot.hasData) {
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('Signed in as ${snapshot.data!.displayName}'),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () async {
+                      await _authService.signOutGoogle();
+                      setState(() {});
+                    },
+                    child: const Text('Sign out'),
+                  ),
+                ],
+              );
+            } else {
+              return ElevatedButton(
+                onPressed: () async {
+                  User? user = await _authService.signInWithGoogle();
+                  if (user != null) {
+                    setState(() {});
+                  }
+                },
+                child: const Text('Sign in with Google'),
+              );
+            }
+          },
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
+  }
+}
+
+class AuthService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
+
+  Future<User?> signInWithGoogle() async {
+    try {
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+
+      final GoogleSignInAuthentication? googleAuth =
+          await googleUser?.authentication;
+
+      if (googleAuth?.accessToken != null && googleAuth?.idToken != null) {
+        final credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth?.accessToken,
+          idToken: googleAuth?.idToken,
+        );
+
+        UserCredential userCredential =
+            await _auth.signInWithCredential(credential);
+        return userCredential.user;
+      }
+    } on FirebaseAuthException catch (e) {
+      print("Firebase Auth Exception: ${e.message}");
+    } catch (e) {
+      print("General Exception during Google Sign-In: $e");
+    }
+    return null;
+  }
+
+  Future<void> signOutGoogle() async {
+    await _googleSignIn.signOut();
+    await _auth.signOut();
   }
 }
