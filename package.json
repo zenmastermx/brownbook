@@ -1,17 +1,10 @@
 {
   "name": "brownbook-flutter",
   "version": "1.0.0",
-  "description": "Brownbook Flutter web app for Firebase App Hosting",
-  "engines": {
-    "node": ">=18.0.0"
-  },
+  "description": "Brownbook Flutter web app",
   "scripts": {
-    "build": "echo 'Build handled by .apphosting.yaml'"
+    "predeploy": "flutter build web --release --web-renderer html",
+    "deploy": "firebase deploy --only hosting"
   },
-  "dependencies": {
-    "firebase": "^10.0.0"
-  },
-  "devDependencies": {
-    "firebase": "^10.0.0"
-  }
+  "dependencies": {}
 }
