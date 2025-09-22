@@ -3,6 +3,5 @@ appHosting:
     dockerfile: Dockerfile
     dockerfilePath: ./
   run:
-    outputDir: build/web
     port: 8080
     concurrency: 80

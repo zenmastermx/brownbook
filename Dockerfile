@@ -1,137 +1,138 @@
-# Use the official Node.js runtime as a parent image
-FROM node:18-bullseye-slim
+##########
+# Builder stage: install Flutter and build the web app
+##########
+FROM debian:bullseye-slim AS builder
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     git \
     unzip \
     xz-utils \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Flutter
+# Install Flutter SDK
 RUN curl -sSL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.24.3-stable.tar.xz -o flutter.tar.xz \
     && tar -xf flutter.tar.xz \
     && rm flutter.tar.xz \
-    && mv flutter /opt/flutter \
-    && /opt/flutter/bin/flutter doctor
+    && mv flutter /opt/flutter
 
-# Add Flutter to PATH
 ENV PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:${PATH}"
 
-# Set the working directory
 WORKDIR /app
 
-# Copy package files first for better caching
-COPY package*.json ./
-
-# Install Node.js dependencies (if any)
-RUN npm ci --only=production || echo "No dependencies to install"
-
-# Copy the application code
+# Copy the project
 COPY . .
 
-# Build the Flutter web app
-RUN flutter clean && flutter pub get && flutter build web --web-renderer html
+# Build Flutter web (release)
+RUN flutter config --no-analytics \
+    && flutter pub get \
+    && flutter build web --web-renderer html --release
 
-# Create a simple HTTP server script optimized for Firebase App Hosting
+##########
+# Runtime stage: lightweight Node image to serve static files
+##########
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy only built web assets
+COPY --from=builder /app/build/web /app/build/web
+
+# Minimal HTTP server with SPA routing and health endpoint
 RUN cat > server.js << 'EOF'
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
 
-const PORT = parseInt(process.env.PORT) || 8080;
-const HOST = '0.0.0.0'; // Firebase App Hosting requires listening on all interfaces
+const PORT = Number(process.env.PORT) || 8080;
+const HOST = '0.0.0.0';
+const ROOT = path.join(__dirname, 'build/web');
 
 const mimeTypes = {
-  '.html': 'text/html',
-  '.js': 'text/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
+  '.html': 'text/html; charset=UTF-8',
+  '.js': 'text/javascript; charset=UTF-8',
+  '.css': 'text/css; charset=UTF-8',
+  '.json': 'application/json; charset=UTF-8',
   '.png': 'image/png',
-  '.jpg': 'image/jpg',
+  '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.gif': 'image/gif',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
-  '.woff': 'application/font-woff',
-  '.woff2': 'application/font-woff2',
-  '.ttf': 'application/font-ttf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
   '.eot': 'application/vnd.ms-fontobject',
-  '.otf': 'application/font-otf'
+  '.otf': 'font/otf'
 };
 
-function serveFile(filePath, res) {
-  // Security check to prevent directory traversal
-  const safePath = path.normalize(filePath).replace(/^(\.\.[\/\\])+/, '');
-  const fullPath = path.join(__dirname, 'build/web', safePath);
+function send(res, status, headers, body) {
+  res.writeHead(status, headers);
+  res.end(body);
+}
 
-  fs.readFile(fullPath, (err, data) => {
+function serveIndex(res) {
+  const indexPath = path.join(ROOT, 'index.html');
+  fs.readFile(indexPath, (err, data) => {
+    if (err) return send(res, 500, { 'Content-Type': 'text/plain' }, 'index.html missing');
+    send(res, 200, { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-cache' }, data);
+  });
+}
+
+function serveStatic(filePath, res) {
+  const ext = path.extname(filePath).toLowerCase();
+  const mime = mimeTypes[ext] || 'application/octet-stream';
+  fs.readFile(filePath, (err, data) => {
     if (err) {
-      if (err.code === 'ENOENT') {
-        // File not found, serve index.html for SPA routing
-        fs.readFile(path.join(__dirname, 'build/web/index.html'), (err2, data2) => {
-          if (err2) {
-            res.writeHead(404, { 'Content-Type': 'text/plain' });
-            res.end('File not found!');
-          } else {
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(data2);
-          }
-        });
-      } else {
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
-        res.end(`Server Error: ${err.code}`);
-      }
-    } else {
-      const ext = path.extname(fullPath).toLowerCase();
-      const mimeType = mimeTypes[ext] || 'application/octet-stream';
-
-      res.writeHead(200, {
-        'Content-Type': mimeType,
-        'Cache-Control': 'public, max-age=31536000', // Cache static assets for 1 year
-        'X-Content-Type-Options': 'nosniff'
-      });
-      res.end(data);
+      if (err.code === 'ENOENT') return serveIndex(res);
+      return send(res, 500, { 'Content-Type': 'text/plain' }, `Server Error: ${err.code}`);
     }
+    const headers = { 'Content-Type': mime, 'X-Content-Type-Options': 'nosniff' };
+    if (ext && ext !== '.html') headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+    send(res, 200, headers, data);
   });
 }
 
 const server = http.createServer((req, res) => {
-  const pathname = url.parse(req.url).pathname;
+  try {
+    const { pathname = '/' } = url.parse(req.url || '/');
 
-  // Add health check endpoint for Firebase App Hosting
-  if (pathname === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok' }));
-    return;
+    if (pathname === '/health') {
+      return send(res, 200, { 'Content-Type': 'application/json' }, JSON.stringify({ status: 'ok' }));
+    }
+
+    let requestedPath = decodeURI(pathname);
+    requestedPath = path.posix.normalize(requestedPath).replace(/^\/+/, '');
+    if (requestedPath.endsWith('/')) requestedPath += 'index.html';
+
+    const absolutePath = path.join(ROOT, requestedPath);
+    if (!absolutePath.startsWith(ROOT)) {
+      return send(res, 400, { 'Content-Type': 'text/plain' }, 'Bad request');
+    }
+
+    if (!path.extname(absolutePath)) {
+      return serveIndex(res);
+    }
+
+    serveStatic(absolutePath, res);
+  } catch (e) {
+    send(res, 500, { 'Content-Type': 'text/plain' }, 'Unexpected server error');
   }
-
-  // Serve static files
-  serveFile(pathname, res);
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`Server running on http://${HOST}:${PORT}/`);
-  console.log(`Health check available at http://${HOST}:${PORT}/health`);
+  console.log(`Server running on http://${HOST}:${PORT}`);
 });
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('Received SIGTERM, shutting down gracefully');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
+  server.close(() => process.exit(0));
 });
 EOF
 
-# Expose the port
 EXPOSE 8080
 
-# Set environment variables for Firebase App Hosting
-ENV PORT=8080
-
-# Start the HTTP server
+# Cloud Run provides PORT. Node script defaults to 8080 when not set.
 CMD ["node", "server.js"]
+
