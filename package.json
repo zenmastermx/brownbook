@@ -8,6 +8,9 @@
   "scripts": {
     "build": "echo 'Build handled by .apphosting.yaml'"
   },
+  "dependencies": {
+    "firebase": "^10.0.0"
+  },
   "devDependencies": {
     "firebase": "^10.0.0"
   }
