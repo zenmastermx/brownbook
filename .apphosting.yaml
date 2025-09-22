@@ -1,7 +1,0 @@
-appHosting:
-  build:
-    dockerfile: Dockerfile
-    dockerfilePath: ./
-  run:
-    port: 8080
-    concurrency: 80
