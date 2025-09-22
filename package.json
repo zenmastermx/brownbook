@@ -6,7 +6,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "build": "bash build.sh"
+    "build": "echo 'Build handled by .apphosting.yaml'"
   },
   "devDependencies": {
     "firebase": "^10.0.0"
